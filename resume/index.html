@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Joe Graham</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: rgb(250, 225, 195);
+      color: rgb(66, 49, 34);
+      line-height: 1.6;
+    }
+    #root { min-height: 100vh; }
+    a { color: inherit; }
+    ::selection { background: rgba(174, 106, 56, 0.28); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    /* =====================
+       COLOR PALETTE
+       ===================== */
+    const C = {
+      accent:         "rgb(174, 106, 56)",
+      text:           "rgb(66, 49, 34)",
+      textDark:       "rgb(50, 34, 20)",
+      textMuted:      "rgb(138, 108, 78)",
+      textLight:      "rgb(168, 138, 108)",
+      textBody:       "rgb(100, 74, 50)",
+      border:         "rgb(218, 192, 162)",
+      tagBg:          "rgba(174, 106, 56, 0.09)",
+      tagBorder:      "rgba(174, 106, 56, 0.35)",
+      dot:            "rgb(200, 168, 132)",
+      cardBg:         "rgb(255, 250, 244)",
+      bgNavScrolled:  "rgba(250, 225, 195, 0.9)",
+    };
+
+    /* =====================
+       RESUME DATA — edit here
+       ===================== */
+    const DATA = {
+      name: "Joe Graham",
+      title: "Software Engineer",
+      tagline: "Building things at the intersection of hardware and software.",
+      contact: {
+        email: "joe@example.com",
+        github: "JoeGLT04",
+        linkedin: "joegraham",
+        location: "City, State",
+      },
+      about:
+        "Add a short professional bio here. Describe your background, what you enjoy building, and what you are looking for next.",
+      experience: [
+        {
+          company: "Company Name",
+          role: "Software Engineer",
+          dates: "Jan 2024 – Present",
+          location: "City, State",
+          bullets: [
+            "Placeholder — describe what you built or improved.",
+            "Quantify impact where possible (e.g., reduced latency by 40%).",
+            "Mention key technologies and your specific contributions.",
+          ],
+        },
+        {
+          company: "Previous Company",
+          role: "Junior Developer",
+          dates: "Jun 2022 – Dec 2023",
+          location: "City, State",
+          bullets: [
+            "Placeholder — describe your responsibilities.",
+            "Highlight achievements and what you shipped.",
+          ],
+        },
+      ],
+      skills: {
+        Languages: ["C++", "Python", "JavaScript", "C"],
+        "Frameworks & Libraries": ["React", "Node.js", "OpenGL"],
+        Tools: ["Git", "Linux", "Arduino"],
+        Hardware: ["Arduino Nano 33 BLE", "IMU / Sensor Fusion", "BLE / UART"],
+      },
+      education: [
+        {
+          school: "University Name",
+          degree: "B.S. Computer Science",
+          dates: "2020 – 2024",
+          gpa: "3.X / 4.0",
+        },
+      ],
+      projects: [
+        {
+          name: "Arduino Angle Measurement",
+          description:
+            "Real-time IMU-based angle measurement using the BMI270 on an Arduino Nano 33 BLE. Implements sensor fusion (AHRS / complementary filter) and streams data over BLE Nordic UART Service to a host computer.",
+          tech: ["C++ (Arduino)", "BLE / NUS", "Python", "IMU Sensor Fusion"],
+          link: "https://github.com/JoeGLT04",
+        },
+        {
+          name: "OpenGL Renderer",
+          description:
+            "Custom OpenGL 4.1 3D renderer on macOS. Reads live IMU data from a named pipe fed by a BLE relay script to animate a 3D model in real time.",
+          tech: ["C++", "OpenGL 4.1", "Python", "BLE"],
+          link: "https://github.com/JoeGLT04",
+        },
+        {
+          name: "Project Name",
+          description: "Placeholder — add a project description here.",
+          tech: ["Tech 1", "Tech 2"],
+          link: null,
+        },
+      ],
+    };
+
+    /* =====================
+       SHARED CARD STYLE
+       ===================== */
+    const card = {
+      background: C.cardBg,
+      border: `1px solid ${C.border}`,
+      borderRadius: "12px",
+      padding: "24px",
+      marginBottom: "16px",
+      boxShadow: "0 1px 4px rgba(66, 49, 34, 0.07)",
+    };
+
+    /* =====================
+       BACKGROUND CANVAS
+       ===================== */
+    const BackgroundCanvas = () => {
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+
+        // --- WebGL context (alpha:true so fluid composites over body background) ---
+        const ctxCfg = { alpha: true, depth: false, stencil: false, antialias: false,
+                         preserveDrawingBuffer: false, premultipliedAlpha: false };
+        let gl = canvas.getContext('webgl2', ctxCfg);
+        const isWebGL2 = !!gl;
+        if (!isWebGL2) gl = canvas.getContext('webgl', ctxCfg) || canvas.getContext('experimental-webgl', ctxCfg);
+        if (!gl) return;
+
+        let halfFloat, linFilt;
+        if (isWebGL2) {
+          gl.getExtension('EXT_color_buffer_float');
+          linFilt = gl.getExtension('OES_texture_float_linear');
+        } else {
+          halfFloat = gl.getExtension('OES_texture_half_float');
+          if (!halfFloat) return;
+          linFilt = gl.getExtension('OES_texture_half_float_linear');
+        }
+        const hfType   = isWebGL2 ? gl.HALF_FLOAT : halfFloat.HALF_FLOAT_OES;
+        const filter   = linFilt  ? gl.LINEAR     : gl.NEAREST;
+
+        function supportRTF(iFmt, fmt, type) {
+          const tex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texImage2D(gl.TEXTURE_2D, 0, iFmt, 4, 4, 0, fmt, type, null);
+          const fbo = gl.createFramebuffer();
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+          return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+        }
+        function getFormat(iFmt, fmt, type) {
+          if (!supportRTF(iFmt, fmt, type)) {
+            if (iFmt === gl.R16F)  return getFormat(gl.RG16F,   gl.RG,   type);
+            if (iFmt === gl.RG16F) return getFormat(gl.RGBA16F, gl.RGBA,  type);
+            return null;
+          }
+          return { internalFormat: iFmt, format: fmt };
+        }
+        let fmtRGBA, fmtRG, fmtR;
+        if (isWebGL2) {
+          fmtRGBA = getFormat(gl.RGBA16F, gl.RGBA, hfType);
+          fmtRG   = getFormat(gl.RG16F,   gl.RG,   hfType);
+          fmtR    = getFormat(gl.R16F,    gl.RED,  hfType);
+        } else {
+          fmtRGBA = getFormat(gl.RGBA, gl.RGBA, hfType);
+          fmtRG   = fmtRGBA;
+          fmtR    = fmtRGBA;
+        }
+        if (!fmtRGBA) return;
+
+        // --- Config ---
+        const SIM_RES    = 128;
+        const DYE_RES    = 512;
+        const DENSITY_D  = 0.8;   // dye dissipation (lower = longer trails)
+        const VELOCITY_D = 0.15;  // velocity dissipation
+        const PRESSURE   = 0.8;
+        const P_ITERS    = 20;
+        const CURL       = 25;
+        const SPLAT_R    = 0.25;   // matches library default radius
+        const SPLAT_F    = 1500;   // velocity scale (UV delta × force)
+
+        // --- Shader helpers ---
+        function compileShader(type, src) {
+          const s = gl.createShader(type);
+          gl.shaderSource(s, src); gl.compileShader(s);
+          if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+          return s;
+        }
+        function makeProg(vSrc, fSrc) {
+          const p = gl.createProgram();
+          gl.bindAttribLocation(p, 0, 'aPosition');
+          gl.attachShader(p, compileShader(gl.VERTEX_SHADER,   vSrc));
+          gl.attachShader(p, compileShader(gl.FRAGMENT_SHADER, fSrc));
+          gl.linkProgram(p);
+          if (!gl.getProgramParameter(p, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(p));
+          const u = {};
+          const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+          for (let i = 0; i < n; i++) { const nm = gl.getActiveUniform(p, i).name; u[nm] = gl.getUniformLocation(p, nm); }
+          return { program: p, u, use() { gl.useProgram(this.program); } };
+        }
+
+        // --- Shared vertex shader ---
+        const VERT = `precision highp float;
+          attribute vec2 aPosition;
+          varying vec2 vUv; varying vec2 vL; varying vec2 vR; varying vec2 vT; varying vec2 vB;
+          uniform vec2 texelSize;
+          void main () {
+            vUv = aPosition * 0.5 + 0.5;
+            vL = vUv - vec2(texelSize.x, 0.0); vR = vUv + vec2(texelSize.x, 0.0);
+            vT = vUv + vec2(0.0, texelSize.y); vB = vUv - vec2(0.0, texelSize.y);
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }`;
+
+        // --- Fragment shaders (Navier-Stokes steps) ---
+        const copyProg = makeProg(VERT, `precision mediump float; precision mediump sampler2D;
+          varying highp vec2 vUv; uniform sampler2D uTexture;
+          void main () { gl_FragColor = texture2D(uTexture, vUv); }`);
+
+        const clearProg = makeProg(VERT, `precision mediump float; precision mediump sampler2D;
+          varying highp vec2 vUv; uniform sampler2D uTexture; uniform float value;
+          void main () { gl_FragColor = value * texture2D(uTexture, vUv); }`);
+
+        const splatProg = makeProg(VERT, `precision highp float; precision highp sampler2D;
+          varying vec2 vUv; uniform sampler2D uTarget; uniform float aspectRatio;
+          uniform vec3 color; uniform vec2 point; uniform float radius;
+          void main () {
+            vec2 p = vUv - point.xy; p.x *= aspectRatio;
+            vec3 splat = exp(-dot(p,p) / radius) * color;
+            gl_FragColor = vec4(texture2D(uTarget, vUv).xyz + splat, 1.0);
+          }`);
+
+        const advectionProg = makeProg(VERT, `precision highp float; precision highp sampler2D;
+          varying vec2 vUv; uniform sampler2D uVelocity; uniform sampler2D uSource;
+          uniform vec2 texelSize; uniform vec2 dyeTexelSize; uniform float dt; uniform float dissipation;
+          vec4 bilerp (sampler2D sam, vec2 uv, vec2 tsize) {
+            vec2 st = uv / tsize - 0.5; vec2 iuv = floor(st); vec2 fuv = fract(st);
+            vec4 a = texture2D(sam,(iuv+vec2(0.5,0.5))*tsize); vec4 b = texture2D(sam,(iuv+vec2(1.5,0.5))*tsize);
+            vec4 c = texture2D(sam,(iuv+vec2(0.5,1.5))*tsize); vec4 d = texture2D(sam,(iuv+vec2(1.5,1.5))*tsize);
+            return mix(mix(a,b,fuv.x),mix(c,d,fuv.x),fuv.y);
+          }
+          void main () {
+            vec2 coord = vUv - dt * bilerp(uVelocity, vUv, texelSize).xy * texelSize;
+            gl_FragColor = bilerp(uSource, coord, dyeTexelSize) / (1.0 + dissipation * dt);
+          }`);
+
+        const divergenceProg = makeProg(VERT, `precision mediump float; precision mediump sampler2D;
+          varying highp vec2 vUv; varying highp vec2 vL; varying highp vec2 vR;
+          varying highp vec2 vT; varying highp vec2 vB; uniform sampler2D uVelocity;
+          void main () {
+            float L=texture2D(uVelocity,vL).x; float R=texture2D(uVelocity,vR).x;
+            float T=texture2D(uVelocity,vT).y; float B=texture2D(uVelocity,vB).y;
+            vec2 C=texture2D(uVelocity,vUv).xy;
+            if(vL.x<0.0){L=-C.x;} if(vR.x>1.0){R=-C.x;} if(vT.y>1.0){T=-C.y;} if(vB.y<0.0){B=-C.y;}
+            gl_FragColor = vec4(0.5*(R-L+T-B), 0.0, 0.0, 1.0);
+          }`);
+
+        const curlProg = makeProg(VERT, `precision mediump float; precision mediump sampler2D;
+          varying highp vec2 vUv; varying highp vec2 vL; varying highp vec2 vR;
+          varying highp vec2 vT; varying highp vec2 vB; uniform sampler2D uVelocity;
+          void main () {
+            float vort = texture2D(uVelocity,vR).y - texture2D(uVelocity,vL).y
+                       - texture2D(uVelocity,vT).x + texture2D(uVelocity,vB).x;
+            gl_FragColor = vec4(0.5*vort, 0.0, 0.0, 1.0);
+          }`);
+
+        const vorticityProg = makeProg(VERT, `precision highp float; precision highp sampler2D;
+          varying vec2 vUv; varying vec2 vL; varying vec2 vR; varying vec2 vT; varying vec2 vB;
+          uniform sampler2D uVelocity; uniform sampler2D uCurl; uniform float curl; uniform float dt;
+          void main () {
+            float L=texture2D(uCurl,vL).x; float R=texture2D(uCurl,vR).x;
+            float T=texture2D(uCurl,vT).x; float B=texture2D(uCurl,vB).x; float C=texture2D(uCurl,vUv).x;
+            vec2 force = 0.5*vec2(abs(T)-abs(B), abs(R)-abs(L));
+            force /= length(force)+0.0001; force *= curl*C; force.y *= -1.0;
+            vec2 vel = texture2D(uVelocity,vUv).xy + force*dt;
+            gl_FragColor = vec4(clamp(vel,-1000.0,1000.0), 0.0, 1.0);
+          }`);
+
+        const pressureProg = makeProg(VERT, `precision mediump float; precision mediump sampler2D;
+          varying highp vec2 vUv; varying highp vec2 vL; varying highp vec2 vR;
+          varying highp vec2 vT; varying highp vec2 vB; uniform sampler2D uPressure; uniform sampler2D uDivergence;
+          void main () {
+            float pressure = (texture2D(uPressure,vL).x + texture2D(uPressure,vR).x
+                            + texture2D(uPressure,vB).x + texture2D(uPressure,vT).x
+                            - texture2D(uDivergence,vUv).x) * 0.25;
+            gl_FragColor = vec4(pressure, 0.0, 0.0, 1.0);
+          }`);
+
+        const gradSubProg = makeProg(VERT, `precision mediump float; precision mediump sampler2D;
+          varying highp vec2 vUv; varying highp vec2 vL; varying highp vec2 vR;
+          varying highp vec2 vT; varying highp vec2 vB; uniform sampler2D uPressure; uniform sampler2D uVelocity;
+          void main () {
+            vec2 vel = texture2D(uVelocity,vUv).xy;
+            vel -= vec2(texture2D(uPressure,vR).x - texture2D(uPressure,vL).x,
+                        texture2D(uPressure,vT).x - texture2D(uPressure,vB).x);
+            gl_FragColor = vec4(vel, 0.0, 1.0);
+          }`);
+
+        // Display: transparent where no dye; coffee-brown composite over body background
+        const displayProg = makeProg(VERT, `precision highp float; precision highp sampler2D;
+          varying vec2 vUv; uniform sampler2D uTexture;
+          void main () {
+            vec3 c = min(texture2D(uTexture, vUv).rgb, vec3(1.0));
+            float a = min(max(c.r, max(c.g, c.b)) * 3.0, 1.0);
+            gl_FragColor = vec4(c, a);
+          }`);
+
+        // --- Fullscreen quad ---
+        gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,-1,1,1,1,1,-1]), gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer());
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([0,1,2,0,2,3]), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+        gl.enableVertexAttribArray(0);
+
+        function blit(target) {
+          if (target === null) {
+            gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+          } else {
+            gl.viewport(0, 0, target.width, target.height);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+          }
+          gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 0);
+        }
+
+        // --- FBO helpers ---
+        function createFBO(w, h, iFmt, fmt, type, filt) {
+          gl.activeTexture(gl.TEXTURE0);
+          const tex = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, tex);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          gl.texImage2D(gl.TEXTURE_2D, 0, iFmt, w, h, 0, fmt, type, null);
+          const fbo = gl.createFramebuffer();
+          gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+          gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+          gl.viewport(0, 0, w, h); gl.clear(gl.COLOR_BUFFER_BIT);
+          return {
+            texture: tex, fbo, width: w, height: h, texelSizeX: 1/w, texelSizeY: 1/h,
+            attach(id) { gl.activeTexture(gl.TEXTURE0+id); gl.bindTexture(gl.TEXTURE_2D, this.texture); return id; }
+          };
+        }
+        function createDoubleFBO(w, h, iFmt, fmt, type, filt) {
+          let r = createFBO(w, h, iFmt, fmt, type, filt);
+          let wr = createFBO(w, h, iFmt, fmt, type, filt);
+          return {
+            width: w, height: h, texelSizeX: r.texelSizeX, texelSizeY: r.texelSizeY,
+            get read() { return r; },  set read(v)  { r  = v; },
+            get write() { return wr; }, set write(v) { wr = v; },
+            swap() { const t = r; r = wr; wr = t; }
+          };
+        }
+        function resizeFBO(target, w, h, iFmt, fmt, type, filt) {
+          const n = createFBO(w, h, iFmt, fmt, type, filt);
+          copyProg.use(); gl.uniform1i(copyProg.u.uTexture, target.attach(0)); blit(n); return n;
+        }
+        function resizeDoubleFBO(target, w, h, iFmt, fmt, type, filt) {
+          if (target.width === w && target.height === h) return target;
+          target.read  = resizeFBO(target.read, w, h, iFmt, fmt, type, filt);
+          target.write = createFBO(w, h, iFmt, fmt, type, filt);
+          target.width = w; target.height = h; target.texelSizeX = 1/w; target.texelSizeY = 1/h;
+          return target;
+        }
+        function getResolution(res) {
+          const ar  = gl.drawingBufferWidth / gl.drawingBufferHeight;
+          const min = Math.round(res);
+          const max = Math.round(res * (ar < 1 ? 1/ar : ar));
+          return gl.drawingBufferWidth > gl.drawingBufferHeight
+            ? { width: max, height: min } : { width: min, height: max };
+        }
+
+        // --- Init FBOs ---
+        let velFBO, dyeFBO, divFBO, curlFBO, presFBO;
+        function initFBOs() {
+          const simRes = getResolution(SIM_RES);
+          const dyeRes = getResolution(DYE_RES);
+          gl.disable(gl.BLEND);
+          if (!velFBO) {
+            velFBO = createDoubleFBO(simRes.width, simRes.height, fmtRG.internalFormat,   fmtRG.format,   hfType, filter);
+            dyeFBO = createDoubleFBO(dyeRes.width, dyeRes.height, fmtRGBA.internalFormat, fmtRGBA.format, hfType, filter);
+          } else {
+            velFBO = resizeDoubleFBO(velFBO, simRes.width, simRes.height, fmtRG.internalFormat,   fmtRG.format,   hfType, filter);
+            dyeFBO = resizeDoubleFBO(dyeFBO, dyeRes.width, dyeRes.height, fmtRGBA.internalFormat, fmtRGBA.format, hfType, filter);
+          }
+          divFBO  = createFBO(simRes.width, simRes.height, fmtR.internalFormat, fmtR.format, hfType, gl.NEAREST);
+          curlFBO = createFBO(simRes.width, simRes.height, fmtR.internalFormat, fmtR.format, hfType, gl.NEAREST);
+          presFBO = createDoubleFBO(simRes.width, simRes.height, fmtR.internalFormat, fmtR.format, hfType, gl.NEAREST);
+        }
+        canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+        initFBOs();
+
+        let resizeTimer;
+        const onResize = () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(() => {
+            const w = window.innerWidth, h = window.innerHeight;
+            if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; initFBOs(); }
+          }, 100);
+        };
+        window.addEventListener('resize', onResize);
+
+        // --- Mouse (hover, no click required) ---
+        const PALETTE = [
+          [0.47, 0.28, 0.12],  // coffee
+          [0.55, 0.32, 0.14],  // medium roast
+          [0.35, 0.18, 0.07],  // dark espresso
+          [0.63, 0.42, 0.20],  // caramel
+        ];
+        let palIdx = 0;
+        const ptr = { x: 0.5, y: 0.5, px: 0.5, py: 0.5, dx: 0, dy: 0, moved: false };
+        const onMouseMove = e => {
+          ptr.px = ptr.x; ptr.py = ptr.y;
+          ptr.x = e.clientX / canvas.width;
+          ptr.y = 1.0 - e.clientY / canvas.height;
+          const ar = canvas.width / canvas.height;
+          ptr.dx = ar < 1 ? (ptr.x - ptr.px) * ar : (ptr.x - ptr.px);
+          ptr.dy = ar > 1 ? (ptr.y - ptr.py) / ar : (ptr.y - ptr.py);
+          ptr.moved = Math.abs(ptr.dx) > 0 || Math.abs(ptr.dy) > 0;
+        };
+        window.addEventListener('mousemove', onMouseMove);
+
+        // --- Splat ---
+        function splat(x, y, dx, dy, color) {
+          const ar = canvas.width / canvas.height;
+          const r  = SPLAT_R;
+          splatProg.use();
+          gl.uniform1i(splatProg.u.uTarget,      velFBO.read.attach(0));
+          gl.uniform1f(splatProg.u.aspectRatio,  ar);
+          gl.uniform2f(splatProg.u.point,        x, y);
+          gl.uniform3f(splatProg.u.color,        dx, dy, 0);
+          gl.uniform1f(splatProg.u.radius,       r);
+          blit(velFBO.write); velFBO.swap();
+          gl.uniform1i(splatProg.u.uTarget,      dyeFBO.read.attach(0));
+          gl.uniform3f(splatProg.u.color,        color[0], color[1], color[2]);
+          blit(dyeFBO.write); dyeFBO.swap();
+        }
+
+        // --- Simulation step (curl → vorticity → divergence → pressure → grad-sub → advect) ---
+        function step(dt) {
+          gl.disable(gl.BLEND);
+
+          curlProg.use();
+          gl.uniform2f(curlProg.u.texelSize, velFBO.texelSizeX, velFBO.texelSizeY);
+          gl.uniform1i(curlProg.u.uVelocity, velFBO.read.attach(0));
+          blit(curlFBO);
+
+          vorticityProg.use();
+          gl.uniform2f(vorticityProg.u.texelSize, velFBO.texelSizeX, velFBO.texelSizeY);
+          gl.uniform1i(vorticityProg.u.uVelocity, velFBO.read.attach(0));
+          gl.uniform1i(vorticityProg.u.uCurl,     curlFBO.attach(1));
+          gl.uniform1f(vorticityProg.u.curl,      CURL);
+          gl.uniform1f(vorticityProg.u.dt,        dt);
+          blit(velFBO.write); velFBO.swap();
+
+          divergenceProg.use();
+          gl.uniform2f(divergenceProg.u.texelSize, velFBO.texelSizeX, velFBO.texelSizeY);
+          gl.uniform1i(divergenceProg.u.uVelocity, velFBO.read.attach(0));
+          blit(divFBO);
+
+          clearProg.use();
+          gl.uniform1i(clearProg.u.uTexture, presFBO.read.attach(0));
+          gl.uniform1f(clearProg.u.value, PRESSURE);
+          blit(presFBO.write); presFBO.swap();
+
+          pressureProg.use();
+          gl.uniform2f(pressureProg.u.texelSize,    velFBO.texelSizeX, velFBO.texelSizeY);
+          gl.uniform1i(pressureProg.u.uDivergence,  divFBO.attach(0));
+          for (let i = 0; i < P_ITERS; i++) {
+            gl.uniform1i(pressureProg.u.uPressure, presFBO.read.attach(1));
+            blit(presFBO.write); presFBO.swap();
+          }
+
+          gradSubProg.use();
+          gl.uniform2f(gradSubProg.u.texelSize, velFBO.texelSizeX, velFBO.texelSizeY);
+          gl.uniform1i(gradSubProg.u.uPressure, presFBO.read.attach(0));
+          gl.uniform1i(gradSubProg.u.uVelocity, velFBO.read.attach(1));
+          blit(velFBO.write); velFBO.swap();
+
+          advectionProg.use();
+          gl.uniform2f(advectionProg.u.texelSize,    velFBO.texelSizeX, velFBO.texelSizeY);
+          gl.uniform2f(advectionProg.u.dyeTexelSize, velFBO.texelSizeX, velFBO.texelSizeY);
+          const velId = velFBO.read.attach(0);
+          gl.uniform1i(advectionProg.u.uVelocity,    velId);
+          gl.uniform1i(advectionProg.u.uSource,      velId);
+          gl.uniform1f(advectionProg.u.dt,           dt);
+          gl.uniform1f(advectionProg.u.dissipation,  VELOCITY_D);
+          blit(velFBO.write); velFBO.swap();
+
+          gl.uniform2f(advectionProg.u.dyeTexelSize, dyeFBO.texelSizeX, dyeFBO.texelSizeY);
+          gl.uniform1i(advectionProg.u.uVelocity,    velFBO.read.attach(0));
+          gl.uniform1i(advectionProg.u.uSource,      dyeFBO.read.attach(1));
+          gl.uniform1f(advectionProg.u.dissipation,  DENSITY_D);
+          blit(dyeFBO.write); dyeFBO.swap();
+        }
+
+        // --- Render dye to screen (transparent over body background) ---
+        // No GL blending here — output straight alpha, let the browser composite
+        // the canvas over the body background. Enabling gl.BLEND would multiply
+        // alpha twice (once here, once by the browser) making the fluid invisible.
+        function render() {
+          gl.disable(gl.BLEND);
+          gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+          displayProg.use();
+          gl.uniform2f(displayProg.u.texelSize, 1/gl.drawingBufferWidth, 1/gl.drawingBufferHeight);
+          gl.uniform1i(displayProg.u.uTexture, dyeFBO.read.attach(0));
+          blit(null);
+        }
+
+        // --- Main loop ---
+        let lastTime = Date.now(), animId;
+        function update() {
+          const now = Date.now();
+          const dt = Math.min((now - lastTime) / 1000, 0.016667);
+          lastTime = now;
+          if (ptr.moved) {
+            ptr.moved = false;
+            splat(ptr.x, ptr.y, ptr.dx * SPLAT_F, ptr.dy * SPLAT_F, PALETTE[palIdx++ % PALETTE.length]);
+          }
+          step(dt);
+          render();
+          animId = requestAnimationFrame(update);
+        }
+        update();
+
+        return () => {
+          cancelAnimationFrame(animId);
+          clearTimeout(resizeTimer);
+          window.removeEventListener('resize', onResize);
+          window.removeEventListener('mousemove', onMouseMove);
+        };
+      }, []);
+
+      return (
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            zIndex: -1,
+            pointerEvents: "none",
+          }}
+        />
+      );
+    };
+
+    /* =====================
+       COMPONENTS
+       ===================== */
+    const Tag = ({ label }) => (
+      <span
+        style={{
+          display: "inline-block",
+          padding: "3px 10px",
+          borderRadius: "9999px",
+          background: C.tagBg,
+          color: C.accent,
+          fontSize: "12px",
+          fontWeight: 500,
+          border: `1px solid ${C.tagBorder}`,
+          marginRight: "6px",
+          marginBottom: "6px",
+        }}
+      >
+        {label}
+      </span>
+    );
+
+    const SectionHeading = ({ children, id }) => (
+      <div id={id} style={{ paddingTop: "80px", marginBottom: "28px" }}>
+        <h2
+          style={{
+            fontSize: "20px",
+            fontWeight: 700,
+            color: C.textDark,
+            letterSpacing: "-0.02em",
+            paddingBottom: "12px",
+            borderBottom: `2px solid ${C.border}`,
+          }}
+        >
+          {children}
+        </h2>
+      </div>
+    );
+
+    const ExperienceCard = ({ item }) => (
+      <div style={card}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "8px",
+            marginBottom: "12px",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: "16px", fontWeight: 600, color: C.textDark }}>
+              {item.role}
+            </div>
+            <div style={{ fontSize: "13px", color: C.accent, fontWeight: 500, marginTop: "2px" }}>
+              {item.company}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "13px", color: C.textMuted }}>{item.dates}</div>
+            <div style={{ fontSize: "12px", color: C.textLight }}>{item.location}</div>
+          </div>
+        </div>
+        <ul style={{ paddingLeft: "18px" }}>
+          {item.bullets.map((b, i) => (
+            <li
+              key={i}
+              style={{ fontSize: "14px", color: C.textBody, marginBottom: "5px", lineHeight: "1.65" }}
+            >
+              {b}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+
+    const ProjectCard = ({ item }) => (
+      <div style={card}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            marginBottom: "10px",
+          }}
+        >
+          <div style={{ fontSize: "16px", fontWeight: 600, color: C.textDark }}>{item.name}</div>
+          {item.link && (
+            <a
+              href={item.link}
+              target="_blank"
+              rel="noreferrer"
+              style={{
+                fontSize: "13px",
+                color: C.accent,
+                textDecoration: "none",
+                flexShrink: 0,
+                marginLeft: "16px",
+              }}
+            >
+              GitHub →
+            </a>
+          )}
+        </div>
+        <p style={{ fontSize: "14px", color: C.textBody, lineHeight: "1.7", marginBottom: "14px" }}>
+          {item.description}
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap" }}>
+          {item.tech.map((t, i) => (
+            <Tag key={i} label={t} />
+          ))}
+        </div>
+      </div>
+    );
+
+    const Navbar = () => {
+      const [scrolled, setScrolled] = useState(false);
+      useEffect(() => {
+        const onScroll = () => setScrolled(window.scrollY > 50);
+        window.addEventListener("scroll", onScroll);
+        return () => window.removeEventListener("scroll", onScroll);
+      }, []);
+
+      const links = ["About", "Experience", "Skills", "Education", "Projects"];
+      return (
+        <nav
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            background: scrolled ? C.bgNavScrolled : "transparent",
+            backdropFilter: scrolled ? "blur(10px)" : "none",
+            borderBottom: scrolled ? `1px solid ${C.border}` : "1px solid transparent",
+            transition: "all 0.2s",
+            padding: "0 40px",
+            height: "60px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <a
+            href="../"
+            style={{
+              fontSize: "13px",
+              color: C.textLight,
+              textDecoration: "none",
+              fontWeight: 500,
+              letterSpacing: "0.02em",
+            }}
+          >
+            ← Back
+          </a>
+          <div style={{ display: "flex", gap: "28px" }}>
+            {links.map((l) => (
+              <NavLink key={l} href={`#${l.toLowerCase()}`} label={l} />
+            ))}
+          </div>
+        </nav>
+      );
+    };
+
+    const NavLink = ({ href, label }) => {
+      const [hovered, setHovered] = useState(false);
+      return (
+        <a
+          href={href}
+          style={{
+            fontSize: "13px",
+            color: hovered ? C.accent : C.textMuted,
+            textDecoration: "none",
+            fontWeight: 500,
+            transition: "color 0.15s",
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          {label}
+        </a>
+      );
+    };
+
+    const Hero = () => (
+      <section
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          padding: "60px 0 40px",
+        }}
+      >
+        <div
+          style={{
+            fontSize: "12px",
+            color: C.accent,
+            fontWeight: 600,
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            marginBottom: "20px",
+          }}
+        >
+          Portfolio
+        </div>
+        <h1
+          style={{
+            fontSize: "clamp(44px, 7vw, 76px)",
+            fontWeight: 700,
+            color: C.textDark,
+            letterSpacing: "-0.04em",
+            lineHeight: 1.05,
+            marginBottom: "16px",
+          }}
+        >
+          {DATA.name}
+        </h1>
+        <div
+          style={{
+            fontSize: "clamp(18px, 2.5vw, 26px)",
+            color: C.textMuted,
+            fontWeight: 300,
+            marginBottom: "20px",
+          }}
+        >
+          {DATA.title}
+        </div>
+        <p
+          style={{
+            fontSize: "17px",
+            color: C.textMuted,
+            maxWidth: "520px",
+            lineHeight: "1.75",
+            marginBottom: "40px",
+          }}
+        >
+          {DATA.tagline}
+        </p>
+        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+          <ContactLink href={`mailto:${DATA.contact.email}`} label={DATA.contact.email} />
+          <Dot />
+          <ContactLink href={`https://github.com/${DATA.contact.github}`} label="GitHub" external />
+          <Dot />
+          <ContactLink href={`https://linkedin.com/in/${DATA.contact.linkedin}`} label="LinkedIn" external />
+          <Dot />
+          <span style={{ fontSize: "13px", color: C.textLight }}>{DATA.contact.location}</span>
+        </div>
+      </section>
+    );
+
+    const Dot = () => (
+      <span style={{ color: C.dot, fontSize: "14px", userSelect: "none" }}>·</span>
+    );
+
+    const ContactLink = ({ href, label, external }) => {
+      const [hovered, setHovered] = useState(false);
+      return (
+        <a
+          href={href}
+          target={external ? "_blank" : undefined}
+          rel={external ? "noreferrer" : undefined}
+          style={{
+            fontSize: "13px",
+            color: hovered ? C.accent : C.textBody,
+            textDecoration: "none",
+            fontWeight: 500,
+            transition: "color 0.15s",
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+        >
+          {label}
+        </a>
+      );
+    };
+
+    const App = () => (
+      <>
+        <BackgroundCanvas />
+        <Navbar />
+        <div style={{ maxWidth: "820px", margin: "0 auto", padding: "0 40px 100px" }}>
+          <Hero />
+
+          <SectionHeading id="about">About</SectionHeading>
+          <div style={{ ...card, fontSize: "15px", color: C.textBody, lineHeight: "1.85" }}>
+            {DATA.about}
+          </div>
+
+          <SectionHeading id="experience">Experience</SectionHeading>
+          {DATA.experience.map((item, i) => (
+            <ExperienceCard key={i} item={item} />
+          ))}
+
+          <SectionHeading id="skills">Skills</SectionHeading>
+          <div style={card}>
+            {Object.entries(DATA.skills).map(([category, items]) => (
+              <div key={category} style={{ marginBottom: "20px" }}>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: C.textLight,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    marginBottom: "10px",
+                  }}
+                >
+                  {category}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap" }}>
+                  {items.map((s, i) => (
+                    <Tag key={i} label={s} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <SectionHeading id="education">Education</SectionHeading>
+          {DATA.education.map((item, i) => (
+            <div
+              key={i}
+              style={{
+                ...card,
+                display: "flex",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: "8px",
+              }}
+            >
+              <div>
+                <div style={{ fontSize: "16px", fontWeight: 600, color: C.textDark }}>
+                  {item.school}
+                </div>
+                <div style={{ fontSize: "13px", color: C.accent, fontWeight: 500, marginTop: "4px" }}>
+                  {item.degree}
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: "13px", color: C.textMuted }}>{item.dates}</div>
+                <div style={{ fontSize: "12px", color: C.textLight }}>GPA: {item.gpa}</div>
+              </div>
+            </div>
+          ))}
+
+          <SectionHeading id="projects">Projects</SectionHeading>
+          {DATA.projects.map((item, i) => (
+            <ProjectCard key={i} item={item} />
+          ))}
+
+          <footer
+            style={{
+              marginTop: "80px",
+              paddingTop: "28px",
+              borderTop: `1px solid ${C.border}`,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "8px",
+            }}
+          >
+            <span style={{ fontSize: "12px", color: C.textLight }}>{DATA.name}</span>
+            <a href="../" style={{ fontSize: "12px", color: C.textLight, textDecoration: "none" }}>
+              ← Back to home
+            </a>
+          </footer>
+        </div>
+      </>
+    );
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>
