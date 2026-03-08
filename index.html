@@ -19,19 +19,16 @@
       height: 100%;
       background: #1c120a;
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       overflow: hidden;
     }
 
-    .cards {
-      display: flex;
-      gap: 40px;
-      align-items: center;
+    .stage {
+      position: fixed;
+      inset: 0;
     }
 
     .card {
+      position: absolute;
       width: 260px;
       height: 340px;
       background: #24190f;
@@ -42,16 +39,24 @@
       align-items: center;
       justify-content: center;
       gap: 28px;
-      cursor: pointer;
+      cursor: grab;
       text-decoration: none;
-      transition: border-color 0.25s, transform 0.25s, background 0.25s, box-shadow 0.25s;
+      user-select: none;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+      will-change: transform;
     }
 
     .card:hover {
       border-color: #ae6a38;
       background: #2d1e10;
-      transform: translateY(-6px);
-      box-shadow: 0 20px 60px rgba(174, 106, 56, 0.15);
+      box-shadow: 0 16px 48px rgba(174, 106, 56, 0.18);
+    }
+
+    .card.dragging {
+      cursor: grabbing;
+      border-color: #ae6a38;
+      box-shadow: 0 24px 64px rgba(174, 106, 56, 0.22);
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
 
     /* PDF / document icon */
@@ -59,6 +64,7 @@
       width: 90px;
       height: 116px;
       position: relative;
+      pointer-events: none;
     }
 
     .doc-icon svg {
@@ -68,6 +74,7 @@
 
     .card-info {
       text-align: center;
+      pointer-events: none;
     }
 
     .card-label {
@@ -84,13 +91,36 @@
       letter-spacing: 0.06em;
       margin-top: 6px;
     }
+
+    .top-btn {
+      background: none;
+      border: 1px solid #412e1e;
+      border-radius: 8px;
+      padding: 7px 14px;
+      color: #826448;
+      font-family: inherit;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .top-btn:hover {
+      border-color: #ae6a38;
+      color: #fae1c3;
+    }
   </style>
 </head>
 <body>
-  <div class="cards">
+  <div style="position:fixed;top:20px;right:20px;display:flex;gap:8px;z-index:100;">
+    <button class="top-btn" id="randomize-btn">Randomize</button>
+    <button class="top-btn" id="reset-btn">Reset</button>
+  </div>
+  <div class="stage">
 
     <!-- Option 1: Resume -->
-    <a class="card" href="resume/">
+    <a class="card" href="resume/" id="card-resume">
       <div class="doc-icon">
         <svg viewBox="0 0 90 116" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M0 6C0 2.686 2.686 0 6 0H62L90 28V110C90 113.314 87.314 116 84 116H6C2.686 116 0 113.314 0 110V6Z" fill="#2d1e10"/>
@@ -106,7 +136,7 @@
     </a>
 
     <!-- Option 2: Desktop -->
-    <a class="card" href="desktop.html">
+    <a class="card" href="desktop.html" id="card-desktop">
       <div class="doc-icon">
         <svg viewBox="0 0 90 116" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M0 6C0 2.686 2.686 0 6 0H62L90 28V110C90 113.314 87.314 116 84 116H6C2.686 116 0 113.314 0 110V6Z" fill="#2d1e10"/>
@@ -122,5 +152,171 @@
     </a>
 
   </div>
+
+  <script>
+    const CARD_W = 260, CARD_H = 340;
+    const FRICTION    = 0.991;  // ice — very low friction
+    const RESTITUTION = 0.72;   // bounciness
+
+    const cardEls = [...document.querySelectorAll('.card')];
+    const ww = () => window.innerWidth;
+    const wh = () => window.innerHeight;
+
+    const OFFSETS = [-180, 180];
+    function homePos(i) {
+      return { x: ww() / 2 - CARD_W / 2 + OFFSETS[i], y: wh() / 2 - CARD_H / 2 };
+    }
+
+    // Initialise card state, spread around centre
+    const cards = cardEls.map((el, i) => {
+      const { x, y } = homePos(i);
+      return { el, x, y, vx: 0, vy: 0, px: x, py: y, dragging: false };
+    });
+
+    function place(c) {
+      c.el.style.left = c.x + 'px';
+      c.el.style.top  = c.y + 'px';
+    }
+    cards.forEach(place);
+
+    // ── Drag ──────────────────────────────────────────────────────────────
+    let dragCard   = null;
+    let dragOffX   = 0, dragOffY = 0;
+    let didMove    = false;   // distinguish click vs drag
+
+    cardEls.forEach((el, i) => {
+      el.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        el.setPointerCapture(e.pointerId);
+        dragCard = cards[i];
+        dragCard.dragging = true;
+        dragOffX = e.clientX - dragCard.x;
+        dragOffY = e.clientY - dragCard.y;
+        dragCard.px = dragCard.x;
+        dragCard.py = dragCard.y;
+        didMove = false;
+        el.classList.add('dragging');
+        el.style.zIndex = 10;
+      });
+
+      el.addEventListener('click', e => {
+        if (didMove) e.preventDefault();
+      });
+    });
+
+    window.addEventListener('pointermove', e => {
+      if (!dragCard) return;
+      const nx = e.clientX - dragOffX;
+      const ny = e.clientY - dragOffY;
+      // track velocity as position delta
+      dragCard.px = dragCard.x;
+      dragCard.py = dragCard.y;
+      dragCard.x  = nx;
+      dragCard.y  = ny;
+      place(dragCard);
+      if (Math.abs(nx - (dragCard.px + dragOffX - dragOffX)) > 4 ||
+          Math.abs(ny - (dragCard.py + dragOffY - dragOffY)) > 4) {
+        didMove = true;
+      }
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (!dragCard) return;
+      // release with the last frame delta as velocity
+      dragCard.vx = (dragCard.x - dragCard.px) * 0.9;
+      dragCard.vy = (dragCard.y - dragCard.py) * 0.9;
+      dragCard.dragging = false;
+      dragCard.el.classList.remove('dragging');
+      dragCard.el.style.zIndex = '';
+      dragCard = null;
+    });
+
+    // ── AABB collision between two cards ──────────────────────────────────
+    function resolveCollision(a, b) {
+      const dx  = (b.x + CARD_W / 2) - (a.x + CARD_W / 2);
+      const dy  = (b.y + CARD_H / 2) - (a.y + CARD_H / 2);
+      const penX = CARD_W  - Math.abs(dx);
+      const penY = CARD_H  - Math.abs(dy);
+      if (penX <= 0 || penY <= 0) return;  // no overlap
+
+      const sx = Math.sign(dx) || 1;
+      const sy = Math.sign(dy) || 1;
+
+      // velocity of dragged card = last frame delta
+      const avx = a.dragging ? (a.x - a.px) : a.vx;
+      const avy = a.dragging ? (a.y - a.py) : a.vy;
+      const bvx = b.dragging ? (b.x - b.px) : b.vx;
+      const bvy = b.dragging ? (b.y - b.py) : b.vy;
+
+      if (penX < penY) {
+        // separate on X
+        if (!a.dragging) a.x -= sx * penX / 2;
+        if (!b.dragging) b.x += sx * penX / 2;
+        // only resolve if approaching
+        if (sx * (avx - bvx) > 0) {
+          if (!a.dragging) a.vx = bvx * RESTITUTION;
+          if (!b.dragging) b.vx = avx * RESTITUTION;
+        }
+      } else {
+        // separate on Y
+        if (!a.dragging) a.y -= sy * penY / 2;
+        if (!b.dragging) b.y += sy * penY / 2;
+        if (sy * (avy - bvy) > 0) {
+          if (!a.dragging) a.vy = bvy * RESTITUTION;
+          if (!b.dragging) b.vy = avy * RESTITUTION;
+        }
+      }
+    }
+
+    // ── Physics loop ──────────────────────────────────────────────────────
+    function tick() {
+      const W = ww(), H = wh();
+
+      cards.forEach(c => {
+        if (c.dragging) return;
+
+        c.vx *= FRICTION;
+        c.vy *= FRICTION;
+        c.x  += c.vx;
+        c.y  += c.vy;
+
+        // wall bounce
+        if (c.x < 0)            { c.x = 0;          c.vx =  Math.abs(c.vx) * RESTITUTION; }
+        if (c.x + CARD_W > W)   { c.x = W - CARD_W; c.vx = -Math.abs(c.vx) * RESTITUTION; }
+        if (c.y < 0)            { c.y = 0;           c.vy =  Math.abs(c.vy) * RESTITUTION; }
+        if (c.y + CARD_H > H)   { c.y = H - CARD_H; c.vy = -Math.abs(c.vy) * RESTITUTION; }
+      });
+
+      resolveCollision(cards[0], cards[1]);
+      cards.forEach(place);
+
+      requestAnimationFrame(tick);
+    }
+
+    document.getElementById('randomize-btn').addEventListener('click', () => {
+      cards.forEach(c => {
+        const speed = 4 + Math.random() * 5;
+        const angle = Math.random() * 2 * Math.PI;
+        c.vx = Math.cos(angle) * speed;
+        c.vy = Math.sin(angle) * speed;
+      });
+    });
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+      cards.forEach((c, i) => {
+        const { x, y } = homePos(i);
+        c.x = x; c.y = y;
+        c.px = x; c.py = y;
+        c.vx = 0; c.vy = 0;
+        c.dragging = false;
+        c.el.classList.remove('dragging');
+        c.el.style.zIndex = '';
+        place(c);
+      });
+      dragCard = null;
+    });
+
+    tick();
+  </script>
 </body>
 </html>
