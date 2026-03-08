@@ -188,12 +188,15 @@
         const CURL_V = 1.9, SWIRL = 4, PRESSURE = 0.8;
         const VEL_DISS = 0.98, DYE_DISS = 0.96, FORCE = 1.1, RADIUS = 0.3 / 100;
 
-        // HSV → RGB for velocity-direction-based rainbow colors
-        function hsvToRgb(h, s, v) {
-          const i = Math.floor(h * 6);
-          const f = h * 6 - i;
-          const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
-          return [[v,t,p,p,q,v][i%6],[q,v,v,t,p,p][i%6],[p,p,q,v,v,t][i%6]];
+        // Warm brown palette: dark rgb(66,49,34) → light rgb(174,106,56)
+        // t driven by velocity angle so different movement directions produce different shades
+        function fluidColor(angle) {
+          const t = Math.sin(angle) * 0.5 + 0.5;
+          return [
+            (66  + t * (174 - 66))  / 255,
+            (49  + t * (106 - 49))  / 255,
+            (34  + t * (56  - 34))  / 255,
+          ];
         }
 
         // Shader compile
@@ -362,8 +365,7 @@
           const nx = x / canvas.width, ny = 1.0 - y / canvas.height;
           // derive rainbow color from velocity direction (matches library rainbow:true + velocity color)
           const angle = Math.atan2(dy, dx);
-          const hue = (angle / (2 * Math.PI) + 0.5) % 1.0;
-          const col = hsvToRgb(hue, 0.85, 0.9);
+          const col = fluidColor(angle);
           pSpl.use();
           gl.uniform1f(pSpl.u.aspectRatio, ar);
           gl.uniform2f(pSpl.u.uPointer, nx, ny);
