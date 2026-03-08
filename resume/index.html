@@ -27,12 +27,12 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useEffect, useRef, useContext, createContext, useMemo } = React;
 
     /* =====================
-       COLOR PALETTE
+       COLOR PALETTES
        ===================== */
-    const C = {
+    const DAY = {
       accent:         "rgb(174, 106, 56)",
       text:           "rgb(66, 49, 34)",
       textDark:       "rgb(50, 34, 20)",
@@ -45,7 +45,24 @@
       dot:            "rgb(200, 168, 132)",
       cardBg:         "rgb(255, 250, 244)",
       bgNavScrolled:  "rgba(250, 225, 195, 0.9)",
+      bg:             "rgb(250, 225, 195)",
     };
+    const NIGHT = {
+      accent:         "rgb(200, 140, 80)",
+      text:           "rgb(220, 195, 165)",
+      textDark:       "rgb(250, 225, 195)",
+      textMuted:      "rgb(180, 148, 112)",
+      textLight:      "rgb(130, 100, 72)",
+      textBody:       "rgb(195, 166, 134)",
+      border:         "rgb(65, 46, 30)",
+      tagBg:          "rgba(200, 140, 80, 0.13)",
+      tagBorder:      "rgba(200, 140, 80, 0.4)",
+      dot:            "rgb(120, 90, 62)",
+      cardBg:         "rgb(36, 25, 15)",
+      bgNavScrolled:  "rgba(28, 18, 10, 0.92)",
+      bg:             "rgb(28, 18, 10)",
+    };
+    const ColorCtx = createContext(DAY);
 
     /* =====================
        RESUME DATA — edit here
@@ -126,20 +143,22 @@
     /* =====================
        SHARED CARD STYLE
        ===================== */
-    const card = {
+    const makeCard = (C) => ({
       background: C.cardBg,
       border: `1px solid ${C.border}`,
       borderRadius: "12px",
       padding: "24px",
       marginBottom: "16px",
       boxShadow: "0 1px 4px rgba(66, 49, 34, 0.07)",
-    };
+    });
 
     /* =====================
        BACKGROUND CANVAS
        ===================== */
-    const BackgroundCanvas = () => {
+    const BackgroundCanvas = ({ night }) => {
       const canvasRef = useRef(null);
+      const nightRef = useRef(night);
+      useEffect(() => { nightRef.current = night; }, [night]);
 
       useEffect(() => {
         const canvas = canvasRef.current;
@@ -188,10 +207,18 @@
         const CURL_V = 1.9, SWIRL = 4, PRESSURE = 0.8;
         const VEL_DISS = 0.98, DYE_DISS = 0.96, FORCE = 1.1, RADIUS = 0.3 / 100;
 
-        // Warm brown palette: dark rgb(66,49,34) → light rgb(174,106,56)
-        // t driven by velocity angle so different movement directions produce different shades
+        // Fluid color: day = dark brown→light brown, night = amber→cream
         function fluidColor(angle) {
           const t = Math.sin(angle) * 0.5 + 0.5;
+          if (nightRef.current) {
+            // Night: rgb(174,106,56) → rgb(250,225,195)
+            return [
+              (174 + t * (250 - 174)) / 255,
+              (106 + t * (225 - 106)) / 255,
+              (56  + t * (195 - 56))  / 255,
+            ];
+          }
+          // Day: rgb(66,49,34) → rgb(174,106,56)
           return [
             (66  + t * (174 - 66))  / 255,
             (49  + t * (106 - 49))  / 255,
@@ -289,14 +316,13 @@
             vec2 vel=texture2D(uVelocity,vUv).xy; vel-=vec2(R-L,T-B);
             gl_FragColor=vec4(vel,0.0,1.0); }`;
 
-        // composite.frag logic from react-fluid-distortion (rainbow mode, cream bg)
+        // composite.frag logic — bg color updated each frame via uniform
         const F_DISP = `precision highp float;
-          varying vec2 vUv; uniform sampler2D uTexture;
+          varying vec2 vUv; uniform sampler2D uTexture; uniform vec3 uBg;
           void main(){
-            vec3 bg=vec3(0.9804,0.8824,0.7647);
             vec3 c=texture2D(uTexture,vUv).rgb;
             float intensity=min(length(c)*5.0,1.0);
-            gl_FragColor=vec4(mix(bg,c,intensity),1.0); }`;
+            gl_FragColor=vec4(mix(uBg,c,intensity),1.0); }`;
 
         const pAdv  = mkProg(V_UV,     F_ADV);
         const pClr  = mkProg(V_UV,     F_CLEAR);
@@ -439,10 +465,11 @@
 
         function render() {
           gl.disable(gl.BLEND);
-          // display shader covers full screen with mix(bg, fluid, intensity) — no gl.clear needed
-          // (clearing here would wipe dye.read since an FBO is still bound after step())
           pDisp.use();
           gl.uniform1i(pDisp.u.uTexture, dye.read.attach(0));
+          // pass current bg color so night mode transition is seamless
+          const bg = nightRef.current ? [28/255, 18/255, 10/255] : [250/255, 225/255, 195/255];
+          gl.uniform3f(pDisp.u.uBg, bg[0], bg[1], bg[2]);
           blit(null);
         }
 
@@ -477,7 +504,9 @@
     /* =====================
        COMPONENTS
        ===================== */
-    const Tag = ({ label }) => (
+    const Tag = ({ label }) => {
+      const C = useContext(ColorCtx);
+      return (
       <span
         style={{
           display: "inline-block",
@@ -495,8 +524,11 @@
         {label}
       </span>
     );
+    };
 
-    const SectionHeading = ({ children, id }) => (
+    const SectionHeading = ({ children, id }) => {
+      const C = useContext(ColorCtx);
+      return (
       <div id={id} style={{ paddingTop: "80px", marginBottom: "28px" }}>
         <h2
           style={{
@@ -512,8 +544,12 @@
         </h2>
       </div>
     );
+    };
 
-    const ExperienceCard = ({ item }) => (
+    const ExperienceCard = ({ item }) => {
+      const C = useContext(ColorCtx);
+      const card = makeCard(C);
+      return (
       <div style={card}>
         <div
           style={{
@@ -549,8 +585,12 @@
         </ul>
       </div>
     );
+    };
 
-    const ProjectCard = ({ item }) => (
+    const ProjectCard = ({ item }) => {
+      const C = useContext(ColorCtx);
+      const card = makeCard(C);
+      return (
       <div style={card}>
         <div
           style={{
@@ -588,8 +628,10 @@
         </div>
       </div>
     );
+    };
 
-    const Navbar = () => {
+    const Navbar = ({ night, onToggleNight }) => {
+      const C = useContext(ColorCtx);
       const [scrolled, setScrolled] = useState(false);
       useEffect(() => {
         const onScroll = () => setScrolled(window.scrollY > 50);
@@ -629,16 +671,34 @@
           >
             ← Back
           </a>
-          <div style={{ display: "flex", gap: "28px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "28px" }}>
             {links.map((l) => (
               <NavLink key={l} href={`#${l.toLowerCase()}`} label={l} />
             ))}
+            <button
+              onClick={onToggleNight}
+              title={night ? "Switch to day mode" : "Switch to night mode"}
+              style={{
+                background: "none",
+                border: `1px solid ${C.border}`,
+                borderRadius: "6px",
+                padding: "4px 10px",
+                cursor: "pointer",
+                fontSize: "13px",
+                color: C.textMuted,
+                fontFamily: "inherit",
+                transition: "color 0.15s, border-color 0.15s",
+              }}
+            >
+              {night ? "☀ Day" : "☾ Night"}
+            </button>
           </div>
         </nav>
       );
     };
 
     const NavLink = ({ href, label }) => {
+      const C = useContext(ColorCtx);
       const [hovered, setHovered] = useState(false);
       return (
         <a
@@ -658,7 +718,9 @@
       );
     };
 
-    const Hero = () => (
+    const Hero = () => {
+      const C = useContext(ColorCtx);
+      return (
       <section
         style={{
           minHeight: "100vh",
@@ -724,12 +786,15 @@
         </div>
       </section>
     );
+    };
 
-    const Dot = () => (
-      <span style={{ color: C.dot, fontSize: "14px", userSelect: "none" }}>·</span>
-    );
+    const Dot = () => {
+      const C = useContext(ColorCtx);
+      return <span style={{ color: C.dot, fontSize: "14px", userSelect: "none" }}>·</span>;
+    };
 
     const ContactLink = ({ href, label, external }) => {
+      const C = useContext(ColorCtx);
       const [hovered, setHovered] = useState(false);
       return (
         <a
@@ -751,100 +816,113 @@
       );
     };
 
-    const App = () => (
-      <>
-        <BackgroundCanvas />
-        <Navbar />
-        <div style={{ maxWidth: "820px", margin: "0 auto", padding: "0 40px 100px" }}>
-          <Hero />
+    const App = () => {
+      const [night, setNight] = useState(true);
+      const C = night ? NIGHT : DAY;
+      const card = makeCard(C);
 
-          <SectionHeading id="about">About</SectionHeading>
-          <div style={{ ...card, fontSize: "15px", color: C.textBody, lineHeight: "1.85" }}>
-            {DATA.about}
-          </div>
+      useEffect(() => {
+        document.body.style.background = C.bg;
+        document.body.style.transition = "background 0.3s";
+      }, [night]);
 
-          <SectionHeading id="experience">Experience</SectionHeading>
-          {DATA.experience.map((item, i) => (
-            <ExperienceCard key={i} item={item} />
-          ))}
+      return (
+        <ColorCtx.Provider value={C}>
+          <>
+            <BackgroundCanvas night={night} />
+            <Navbar night={night} onToggleNight={() => setNight(n => !n)} />
+            <div style={{ maxWidth: "820px", margin: "0 auto", padding: "0 40px 100px" }}>
+              <Hero />
 
-          <SectionHeading id="skills">Skills</SectionHeading>
-          <div style={card}>
-            {Object.entries(DATA.skills).map(([category, items]) => (
-              <div key={category} style={{ marginBottom: "20px" }}>
+              <SectionHeading id="about">About</SectionHeading>
+              <div style={{ ...card, fontSize: "15px", color: C.textBody, lineHeight: "1.85" }}>
+                {DATA.about}
+              </div>
+
+              <SectionHeading id="experience">Experience</SectionHeading>
+              {DATA.experience.map((item, i) => (
+                <ExperienceCard key={i} item={item} />
+              ))}
+
+              <SectionHeading id="skills">Skills</SectionHeading>
+              <div style={card}>
+                {Object.entries(DATA.skills).map(([category, items]) => (
+                  <div key={category} style={{ marginBottom: "20px" }}>
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: C.textLight,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.08em",
+                        marginBottom: "10px",
+                      }}
+                    >
+                      {category}
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap" }}>
+                      {items.map((s, i) => (
+                        <Tag key={i} label={s} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <SectionHeading id="education">Education</SectionHeading>
+              {DATA.education.map((item, i) => (
                 <div
+                  key={i}
                   style={{
-                    fontSize: "11px",
-                    fontWeight: 600,
-                    color: C.textLight,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                    marginBottom: "10px",
+                    ...card,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    flexWrap: "wrap",
+                    gap: "8px",
                   }}
                 >
-                  {category}
+                  <div>
+                    <div style={{ fontSize: "16px", fontWeight: 600, color: C.textDark }}>
+                      {item.school}
+                    </div>
+                    <div style={{ fontSize: "13px", color: C.accent, fontWeight: 500, marginTop: "4px" }}>
+                      {item.degree}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: "13px", color: C.textMuted }}>{item.dates}</div>
+                    <div style={{ fontSize: "12px", color: C.textLight }}>GPA: {item.gpa}</div>
+                  </div>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap" }}>
-                  {items.map((s, i) => (
-                    <Tag key={i} label={s} />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
 
-          <SectionHeading id="education">Education</SectionHeading>
-          {DATA.education.map((item, i) => (
-            <div
-              key={i}
-              style={{
-                ...card,
-                display: "flex",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                gap: "8px",
-              }}
-            >
-              <div>
-                <div style={{ fontSize: "16px", fontWeight: 600, color: C.textDark }}>
-                  {item.school}
-                </div>
-                <div style={{ fontSize: "13px", color: C.accent, fontWeight: 500, marginTop: "4px" }}>
-                  {item.degree}
-                </div>
-              </div>
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: "13px", color: C.textMuted }}>{item.dates}</div>
-                <div style={{ fontSize: "12px", color: C.textLight }}>GPA: {item.gpa}</div>
-              </div>
+              <SectionHeading id="projects">Projects</SectionHeading>
+              {DATA.projects.map((item, i) => (
+                <ProjectCard key={i} item={item} />
+              ))}
+
+              <footer
+                style={{
+                  marginTop: "80px",
+                  paddingTop: "28px",
+                  borderTop: `1px solid ${C.border}`,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                }}
+              >
+                <span style={{ fontSize: "12px", color: C.textLight }}>{DATA.name}</span>
+                <a href="../" style={{ fontSize: "12px", color: C.textLight, textDecoration: "none" }}>
+                  ← Back to home
+                </a>
+              </footer>
             </div>
-          ))}
-
-          <SectionHeading id="projects">Projects</SectionHeading>
-          {DATA.projects.map((item, i) => (
-            <ProjectCard key={i} item={item} />
-          ))}
-
-          <footer
-            style={{
-              marginTop: "80px",
-              paddingTop: "28px",
-              borderTop: `1px solid ${C.border}`,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "8px",
-            }}
-          >
-            <span style={{ fontSize: "12px", color: C.textLight }}>{DATA.name}</span>
-            <a href="../" style={{ fontSize: "12px", color: C.textLight, textDecoration: "none" }}>
-              ← Back to home
-            </a>
-          </footer>
-        </div>
-      </>
-    );
+          </>
+        </ColorCtx.Provider>
+      );
+    };
 
     ReactDOM.createRoot(document.getElementById("root")).render(<App />);
   </script>
